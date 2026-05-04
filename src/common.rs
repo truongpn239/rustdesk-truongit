@@ -2285,6 +2285,17 @@ pub fn is_custom_client() -> bool {
     get_app_name() != "RustDesk"
 }
 
+#[inline]
+pub fn is_qs() -> bool {
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(name) = exe.file_name() {
+            let name = name.to_string_lossy().to_lowercase();
+            return name.contains("qs") || name.contains("quicksupport");
+        }
+    }
+    false
+}
+
 pub fn verify_login(_raw: &str, _id: &str) -> bool {
     true
     /*

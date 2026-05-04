@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
-
 import 'package:back_button_interceptor/back_button_interceptor.dart';
 import 'package:desktop_multi_window/desktop_multi_window.dart';
 import 'package:flutter/foundation.dart';
@@ -382,15 +381,15 @@ class MyTheme {
       shadowColor: Colors.transparent,
     ),
     dialogTheme: DialogThemeData(
-          elevation: 15,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(18.0),
-            side: BorderSide(
-              width: 1,
-              color: grayBg,
-            ),
-          ),
+      elevation: 15,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(18.0),
+        side: BorderSide(
+          width: 1,
+          color: grayBg,
         ),
+      ),
+    ),
     scrollbarTheme: scrollbarTheme,
     inputDecorationTheme: isDesktop
         ? InputDecorationTheme(
@@ -413,8 +412,8 @@ class MyTheme {
     hintColor: Color(0xFFAAAAAA),
     visualDensity: VisualDensity.adaptivePlatformDensity,
     tabBarTheme: const TabBarThemeData(
-          labelColor: Colors.black87,
-        ),
+      labelColor: Colors.black87,
+    ),
     tooltipTheme: tooltipTheme(),
     splashColor: (isDesktop || isWebDesktop) ? Colors.transparent : null,
     highlightColor: (isDesktop || isWebDesktop) ? Colors.transparent : null,
@@ -3964,18 +3963,29 @@ void earlyAssert() {
 
 void checkUpdate() {
   if (!isWeb) {
-    if (!bind.isCustomClient()) {
-      platformFFI.registerEventHandler(
-          kCheckSoftwareUpdateFinish, kCheckSoftwareUpdateFinish,
-          (Map<String, dynamic> evt) async {
-        if (evt['url'] is String) {
-          stateGlobal.updateUrl.value = evt['url'];
+    Timer(const Duration(seconds: 1), () async {
+      try {
+        final resp = await http.get(Uri.parse(
+            'https://helpdesk.truongit.net/download/index.php?json=1'));
+        if (resp.statusCode == 200) {
+          final data = jsonDecode(resp.body);
+          final platformKey = isMacOS ? 'macos' : 'windows';
+          if (data[platformKey] != null) {
+            final newVer = data[platformKey]['version'].toString();
+            final downloadUrl = data[platformKey]['download_url'].toString();
+            final currentVer = await bind.mainGetVersion();
+            // Compare version strings: just a simple string compare is usually fine if format is consistent (e.g. 1.4.5 vs 1.4.4)
+            if (newVer.compareTo(currentVer) > 0) {
+              stateGlobal.updateVersion.value = newVer;
+              stateGlobal.updateUrl.value =
+                  'https://helpdesk.truongit.net' + downloadUrl;
+            }
+          }
         }
-      });
-      Timer(const Duration(seconds: 1), () async {
-        bind.mainGetSoftwareUpdateUrl();
-      });
-    }
+      } catch (e) {
+        debugPrint('checkUpdate error: $e');
+      }
+    });
   }
 }
 
@@ -4179,8 +4189,7 @@ Widget? buildAvatarWidget({
       width: size,
       height: size,
       fit: BoxFit.cover,
-      errorBuilder: (_, __, ___) =>
-          fallback ?? SizedBox.shrink(),
+      errorBuilder: (_, __, ___) => fallback ?? SizedBox.shrink(),
     ),
   );
 }
