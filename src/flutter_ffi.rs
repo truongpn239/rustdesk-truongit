@@ -50,6 +50,13 @@ fn initialize(app_dir: &str, custom_client_config: &str) {
     } else {
         crate::read_custom_client(custom_client_config);
     }
+    // Override APP_NAME for QuickSupport variant
+    if crate::common::is_qs() {
+        let current = config::APP_NAME.read().unwrap().clone();
+        if !current.ends_with("QS") {
+            *config::APP_NAME.write().unwrap() = format!("{}QS", current);
+        }
+    }
     #[cfg(target_os = "android")]
     {
         // flexi_logger can't work when android_logger initialized.
@@ -2775,6 +2782,8 @@ pub fn main_get_common(key: String) -> String {
         return ui_interface::is_permanent_password_set().to_string();
     } else if key == "local-permanent-password-set" {
         return ui_interface::is_local_permanent_password_set().to_string();
+    } else if key == "is-qs" {
+        return crate::common::is_qs().to_string();
     } else {
         if key.starts_with("download-data-") {
             let id = key.replace("download-data-", "");

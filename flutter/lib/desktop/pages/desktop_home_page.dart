@@ -50,6 +50,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   var watchIsCanRecordAudio = false;
   Timer? _updateTimer;
   bool isCardClosed = false;
+  bool _qsExpandedForUpdate = false;
 
   final RxBool _editHover = false.obs;
   final RxBool _block = false.obs;
@@ -60,6 +61,10 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   Widget build(BuildContext context) {
     super.build(context);
     final isIncomingOnly = bind.isIncomingOnly();
+    final isQs = bind.mainGetCommonSync(key: 'is-qs') == 'true';
+    if (isQs) {
+      return _buildBlock(child: buildLeftPane(context, isQs: true));
+    }
     return _buildBlock(
         child: Row(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -76,7 +81,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
         block: _block, mask: true, use: canBeBlocked, child: child);
   }
 
-  Widget buildLeftPane(BuildContext context) {
+  Widget buildLeftPane(BuildContext context, {bool isQs = false}) {
     final isIncomingOnly = bind.isIncomingOnly();
     final isOutgoingOnly = bind.isOutgoingOnly();
     final children = <Widget>[
@@ -107,13 +112,13 @@ class _DesktopHomePageState extends State<DesktopHomePage>
             }
             return data.data!;
           } else {
-            return const Offstage();
+            return const SizedBox();
           }
         },
       ),
       buildPluginEntry(),
     ];
-    if (isIncomingOnly) {
+    if (isIncomingOnly || isQs) {
       children.addAll([
         Divider(),
         OnlineStatusWidget(
@@ -131,7 +136,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     return ChangeNotifierProvider.value(
       value: gFFI.serverModel,
       child: Container(
-        width: isIncomingOnly ? 280.0 : 200.0,
+        width: isQs ? double.infinity : (isIncomingOnly ? 280.0 : 200.0),
         color: Theme.of(context).colorScheme.background,
         child: Stack(
           children: [
@@ -256,6 +261,9 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   }
 
   Widget buildPopupMenu(BuildContext context) {
+    if (bind.mainGetCommonSync(key: 'is-qs') == 'true') {
+      return const SizedBox();
+    }
     final textColor = Theme.of(context).textTheme.titleLarge?.color;
     RxBool hover = false.obs;
     return InkWell(
@@ -294,6 +302,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     RxBool refreshHover = false.obs;
     RxBool editHover = false.obs;
     final textColor = Theme.of(context).textTheme.titleLarge?.color;
+    final isQs = bind.mainGetCommonSync(key: 'is-qs') == 'true';
     final showOneTime = model.approveMode != 'click' &&
         model.verificationMethod != kUsePermanentPassword;
     return Container(
@@ -373,8 +382,14 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                               ).marginOnly(right: 8, top: 4),
                             ),
                           ),
-                          onTap: () => DesktopSettingPage.switch2page(
-                              SettingsTabKey.safety),
+                          onTap: () {
+                            if (isQs) {
+                              setPasswordDialog();
+                            } else {
+                              DesktopSettingPage.switch2page(
+                                  SettingsTabKey.safety);
+                            }
+                          },
                           onHover: (value) => editHover.value = value,
                         ),
                     ],
@@ -430,25 +445,37 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   }
 
   Widget buildHelpCards(String updateUrl) {
+    final isQs = bind.mainGetCommonSync(key: 'is-qs') == 'true';
+    if (isQs && _qsExpandedForUpdate && (updateUrl.isEmpty || isCardClosed)) {
+      _qsExpandedForUpdate = false;
+      windowManager.setSize(getQsHomeSize());
+    }
     if (updateUrl.isNotEmpty && !isCardClosed) {
+      if (isQs && !_qsExpandedForUpdate) {
+        _qsExpandedForUpdate = true;
+        windowManager.setSize(getQsHomeSizeWithUpdate());
+      }
       final isToUpdate = (isWindows || isMacOS) && bind.mainIsInstalled();
-      String btnText = isToUpdate ? 'Update' : 'Download';
+          String btnText = (isToUpdate || isQs || isDesktop) ? 'Update' : 'Download';
       GestureTapCallback onPressed = () async {
-        if (isToUpdate) {
+            if (isToUpdate || isQs || isDesktop) {
           handleUpdate(updateUrl);
         } else {
-          final Uri url = Uri.parse('https://helpdesk.truongit.net/download');
+          final Uri url = Uri.parse(updateUrl);
           await launchUrl(url);
         }
       };
+      final appName = bind.mainGetAppNameSync();
       return buildInstallCard(
           "Status",
-          "${translate("new-version-of-{${bind.mainGetAppNameSync()}}-tip")} (${stateGlobal.updateVersion.value}).",
+          "${translate("new-version-of-{${appName}}-tip")} (${stateGlobal.updateVersion.value}).",
           btnText,
           onPressed,
           closeButton: true,
-          help: isToUpdate ? 'Changelog' : null,
-          link: isToUpdate ? 'https://helpdesk.truongit.net/download' : null);
+          centerContent: true,
+          minHeight: 150,
+          help: null,
+          link: null);
     }
     if (systemError.isNotEmpty) {
       return buildInstallCard("", systemError, "", () {});
@@ -468,7 +495,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
             () async {
           await rustDeskWinManager.closeAllSubWindows();
           bind.mainUpdateMe();
-        });
+        }, centerContent: true, minHeight: 150);
       }
     } else if (isMacOS) {
       final isOutgoingOnly = bind.isOutgoingOnly();
@@ -573,11 +600,14 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       String? help,
       String? link,
       bool? closeButton,
-      String? closeOption}) {
+      String? closeOption,
+      bool centerContent = false,
+      double? minHeight}) {
     if (bind.mainGetBuildinOption(key: kOptionHideHelpCards) == 'Y' &&
         content != 'install_daemon_tip') {
       return const SizedBox();
     }
+    final isQs = bind.mainGetCommonSync(key: 'is-qs') == 'true';
     void closeCard() async {
       if (closeOption != null) {
         await bind.mainSetLocalOption(key: closeOption, value: 'N');
@@ -590,6 +620,10 @@ class _DesktopHomePageState extends State<DesktopHomePage>
         setState(() {
           isCardClosed = true;
         });
+      }
+      if (isQs) {
+        _qsExpandedForUpdate = false;
+        windowManager.setSize(getQsHomeSize());
       }
     }
 
@@ -608,10 +642,19 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                   Color.fromARGB(255, 244, 114, 124),
                 ],
               )),
+            constraints:
+              minHeight != null ? BoxConstraints(minHeight: minHeight) : null,
               padding: EdgeInsets.all(20),
               child: Column(
-                  mainAxisAlignment: MainAxisAlignment.start,
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: centerContent
+                  ? MainAxisSize.min
+                  : MainAxisSize.max,
+                mainAxisAlignment: centerContent
+                  ? MainAxisAlignment.center
+                  : MainAxisAlignment.start,
+                crossAxisAlignment: centerContent
+                  ? CrossAxisAlignment.center
+                  : CrossAxisAlignment.start,
                   children: (title.isNotEmpty
                           ? <Widget>[
                               Center(
@@ -621,19 +664,21 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                                     color: Colors.white,
                                     fontWeight: FontWeight.bold,
                                     fontSize: 15),
-                              ).marginOnly(bottom: 6)),
+                      ).marginOnly(bottom: centerContent ? 8 : 6)),
                             ]
                           : <Widget>[]) +
                       <Widget>[
                         if (content.isNotEmpty)
                           Text(
                             translate(content),
+                            textAlign:
+                                centerContent ? TextAlign.center : TextAlign.start,
                             style: TextStyle(
                                 height: 1.5,
                                 color: Colors.white,
                                 fontWeight: FontWeight.normal,
                                 fontSize: 13),
-                          ).marginOnly(bottom: 20)
+                    ).marginOnly(bottom: centerContent ? 12 : 20)
                       ] +
                       (btnText.isNotEmpty
                           ? <Widget>[
@@ -667,7 +712,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                                                 TextDecoration.underline,
                                             color: Colors.white,
                                             fontSize: 12),
-                                      )).marginOnly(top: 6)),
+                                      )).marginOnly(top: centerContent ? 8 : 6)),
                             ]
                           : <Widget>[]))),
         ),
@@ -926,8 +971,21 @@ void setPasswordDialog({VoidCallback? notEmptyCallback}) async {
       : (presetPassword ? translate('preset-password-in-use-tip') : '');
   final showStatusTipOnMobile =
       statusTip.isNotEmpty && !isDesktop && !isWebDesktop;
+  final isQs = bind.mainGetCommonSync(key: 'is-qs') == 'true';
+  Size? previousSize;
+  if (isQs && isDesktop) {
+    previousSize = await windowManager.getSize();
+    await windowManager.setSize(getQsHomeSizeWithDialog());
+  }
 
   gFFI.dialogManager.show((setState, close, context) {
+    closeWithResize() {
+      if (previousSize != null) {
+        windowManager.setSize(previousSize!);
+      }
+      close();
+    }
+
     updateCanSubmit() {
       canSubmit = p0.text.trim().isNotEmpty || p1.text.trim().isNotEmpty;
     }
@@ -968,7 +1026,7 @@ void setPasswordDialog({VoidCallback? notEmptyCallback}) async {
       if (pass.isNotEmpty) {
         notEmptyCallback?.call();
       }
-      close();
+      closeWithResize();
     }
 
     return CustomAlertDialog(
@@ -980,12 +1038,16 @@ void setPasswordDialog({VoidCallback? notEmptyCallback}) async {
         ],
       ),
       content: ConstrainedBox(
-        constraints: const BoxConstraints(minWidth: 500),
+        constraints: isQs
+            ? const BoxConstraints(minWidth: 300, maxWidth: 340)
+            : const BoxConstraints(minWidth: 500),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             SizedBox(
-              height: showStatusTipOnMobile ? 0.0 : 6.0,
+              height: showStatusTipOnMobile
+                  ? 0.0
+                  : (isQs ? 4.0 : 6.0),
             ),
             Row(
               children: [
@@ -1013,9 +1075,15 @@ void setPasswordDialog({VoidCallback? notEmptyCallback}) async {
               children: [
                 Expanded(child: PasswordStrengthIndicator(password: rxPass)),
               ],
-            ).marginOnly(top: 2, bottom: showStatusTipOnMobile ? 2 : 8),
+            ).marginOnly(
+                top: 2,
+                bottom: showStatusTipOnMobile
+                    ? 2
+                    : (isQs ? 4 : 8)),
             SizedBox(
-              height: showStatusTipOnMobile ? 0.0 : 8.0,
+              height: showStatusTipOnMobile
+                  ? 0.0
+                  : (isQs ? 4.0 : 8.0),
             ),
             Row(
               children: [
@@ -1050,11 +1118,15 @@ void setPasswordDialog({VoidCallback? notEmptyCallback}) async {
                 ],
               ).marginOnly(top: 6, bottom: 2),
             SizedBox(
-              height: showStatusTipOnMobile ? 0.0 : 8.0,
+              height: showStatusTipOnMobile
+                  ? 0.0
+                  : (isQs ? 4.0 : 8.0),
             ),
             Obx(() => Wrap(
-                  runSpacing: showStatusTipOnMobile ? 2.0 : 8.0,
-                  spacing: 4,
+                  runSpacing: showStatusTipOnMobile
+                      ? 2.0
+                      : (isQs ? 4.0 : 8.0),
+                  spacing: isQs ? 2 : 4,
                   children: rules.map((e) {
                     var checked = e.validate(rxPass.value.trim());
                     return Chip(
@@ -1077,7 +1149,7 @@ void setPasswordDialog({VoidCallback? notEmptyCallback}) async {
         final cancelButton = dialogButton(
           "Cancel",
           icon: Icon(Icons.close_rounded),
-          onPressed: close,
+          onPressed: closeWithResize,
           isOutline: true,
         );
         final removeButton = dialogButton(
@@ -1096,7 +1168,7 @@ void setPasswordDialog({VoidCallback? notEmptyCallback}) async {
               });
               return;
             }
-            close();
+            closeWithResize();
           },
           buttonStyle: ButtonStyle(
               backgroundColor: MaterialStatePropertyAll(Colors.red)),
@@ -1127,6 +1199,29 @@ void setPasswordDialog({VoidCallback? notEmptyCallback}) async {
             ),
           ];
         }
+        if (isQs) {
+          return [
+            Align(
+              alignment: Alignment.centerRight,
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerRight,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    cancelButton,
+                    if (localPasswordSet) ...[
+                      const SizedBox(width: 4),
+                      removeButton,
+                    ],
+                    const SizedBox(width: 4),
+                    okButton,
+                  ],
+                ),
+              ),
+            ),
+          ];
+        }
         return [
           cancelButton,
           if (localPasswordSet) removeButton,
@@ -1134,7 +1229,7 @@ void setPasswordDialog({VoidCallback? notEmptyCallback}) async {
         ];
       })(),
       onSubmit: canSubmit ? submit : null,
-      onCancel: close,
+      onCancel: closeWithResize,
     );
   });
 }

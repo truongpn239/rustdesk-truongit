@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_hbb/common/hbbs/hbbs.dart';
 import 'package:flutter_hbb/models/platform_model.dart';
 import 'package:flutter_hbb/models/user_model.dart';
+import 'package:device_info_plus/device_info_plus.dart';
 import 'package:get/get.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -412,7 +413,7 @@ class LoginWidgetUserPass extends StatelessWidget {
                         style: TextStyle(fontSize: 16),
                       ),
                       onPressed:
-                          curOP.value.isEmpty || curOP.value == 'rustdesk'
+                          curOP.value.isEmpty || curOP.value == 'helpdesk'
                               ? () {
                                   onLogin();
                                 }
@@ -429,6 +430,38 @@ const kAuthReqTypeOidc = 'oidc/';
 
 // call this directly
 Future<bool?> loginDialog() async {
+    // Lấy hardware_id và device_name thực tế
+    String hardwareId = '';
+    String deviceName = '';
+    try {
+      final deviceInfo = DeviceInfoPlugin();
+      if (isWindows) {
+        final winInfo = await deviceInfo.windowsInfo;
+        hardwareId = winInfo.deviceId;
+        deviceName = winInfo.computerName;
+      } else if (isLinux) {
+        final linuxInfo = await deviceInfo.linuxInfo;
+        hardwareId = linuxInfo.machineId ?? linuxInfo.id;
+        deviceName = linuxInfo.name ?? linuxInfo.prettyName ?? '';
+      } else if (isMacOS) {
+        final macInfo = await deviceInfo.macOsInfo;
+        hardwareId = macInfo.systemGUID ?? '';
+        deviceName = macInfo.computerName ?? '';
+      } else if (isAndroid) {
+        final androidInfo = await deviceInfo.androidInfo;
+        hardwareId = androidInfo.id;
+        deviceName = androidInfo.device ?? androidInfo.model ?? '';
+      } else if (isIOS) {
+        final iosInfo = await deviceInfo.iosInfo;
+        hardwareId = iosInfo.identifierForVendor ?? '';
+        deviceName = iosInfo.name ?? '';
+      }
+    } catch (e) {
+      hardwareId = '';
+      deviceName = '';
+    }
+    debugPrint('[DEBUG] loginDialog hardwareId: ' + hardwareId);
+    debugPrint('[DEBUG] loginDialog deviceName: ' + deviceName);
   var username =
       TextEditingController(text: UserModel.getLocalUserInfo()?['name'] ?? '');
   var password = TextEditingController();
@@ -520,32 +553,49 @@ Future<bool?> loginDialog() async {
 
     onLogin() async {
       // validate
+      if (!context.mounted) return;
       if (username.text.isEmpty) {
-        setState(() => usernameMsg = translate('Username missed'));
+        if (context.mounted) setState(() => usernameMsg = translate('Username missed'));
         return;
       }
       if (password.text.isEmpty) {
-        setState(() => passwordMsg = translate('Password missed'));
+        if (context.mounted) setState(() => passwordMsg = translate('Password missed'));
         return;
       }
-      curOP.value = 'rustdesk';
-      setState(() => isInProgress = true);
+      debugPrint('[DEBUG] onLogin hardwareId: ' + hardwareId);
+      if (hardwareId.isEmpty) {
+        if (context.mounted) setState(() => passwordMsg = 'Failed to get Hardware ID. Please check again!');
+        return;
+      }
+      curOP.value = 'helpdesk';
+      if (context.mounted) setState(() => isInProgress = true);
       try {
-        final resp = await gFFI.userModel.login(LoginRequest(
-            username: username.text,
-            password: password.text,
-            id: await bind.mainGetMyId(),
-            uuid: await bind.mainGetUuid(),
-            autoLogin: true,
-            type: HttpType.kAuthReqTypeAccount));
-        await handleLoginResponse(resp, true, close);
+        final loginRequest = LoginRequest(
+          username: username.text,
+          password: password.text,
+          hardwareId: hardwareId,
+          deviceName: deviceName,
+        );
+        final loginResponse = await gFFI.userModel.login(loginRequest, context: context);
+        if (!context.mounted) return;
+        debugPrint('[DEBUG] loginResponse.user: ' + loginResponse.user.toString());
+        debugPrint('[DEBUG] username.text: ' + username.text);
+        debugPrint('[DEBUG] loginResponse.user!.name: ' + (loginResponse.user?.name ?? 'null'));
+        if (loginResponse.access_token != null &&
+            loginResponse.user != null &&
+            loginResponse.user!.name == username.text) {
+          if (context.mounted) close(true);
+          return;
+        } else {
+          if (context.mounted) setState(() => passwordMsg = 'Sai thông tin user!');
+        }
       } on RequestException catch (err) {
-        passwordMsg = translate(err.cause);
+        if (context.mounted) setState(() => passwordMsg = translate(err.cause));
       } catch (err) {
-        passwordMsg = "Unknown Error: $err";
+        if (context.mounted) setState(() => passwordMsg = "Unknown error: $err");
       }
       curOP.value = '';
-      setState(() => isInProgress = false);
+      if (context.mounted) setState(() => isInProgress = false);
     }
 
     thirdAuthWidget() => Obx(() {
@@ -698,7 +748,7 @@ Future<bool?> verificationCodeDialog(
       } on RequestException catch (err) {
         errorText = translate(err.cause);
       } catch (err) {
-        errorText = "Unknown Error: $err";
+        errorText = "Unknown error: $err";
       }
 
       setState(() => isInProgress = false);

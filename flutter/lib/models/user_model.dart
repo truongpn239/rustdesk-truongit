@@ -9,14 +9,29 @@ import 'package:get/get.dart';
 
 import '../common.dart';
 import '../utils/http_service.dart' as http;
+import '../utils/websocket_service.dart';
 import 'model.dart';
 import 'platform_model.dart';
+
+Future<void> saveToken(String token) async {
+  await bind.mainSetLocalOption(key: 'access_token', value: token);
+}
+
+Future<String?> getToken() async {
+  final token = bind.mainGetLocalOption(key: 'access_token');
+  return token.isEmpty ? null : token;
+}
+
+Future<void> removeToken() async {
+  await bind.mainSetLocalOption(key: 'access_token', value: '');
+}
 
 bool refreshingUser = false;
 
 class UserModel {
   final RxString userName = ''.obs;
   final RxString displayName = ''.obs;
+  final RxString email = ''.obs;
   final RxString avatar = ''.obs;
   final RxBool isAdmin = false.obs;
   final RxString networkError = ''.obs;
@@ -47,16 +62,66 @@ class UserModel {
     });
   }
 
-  void refreshCurrentUser() async {
+  Map<String, String> _apiHeaders({bool withAuth = false}) {
+    final headers = <String, String>{'Accept-Language': localeName};
+    if (withAuth) {
+      headers['Authorization'] =
+          'Bearer ${bind.mainGetLocalOption(key: 'access_token')}';
+    }
+    return headers;
+  }
+
+  String _trimTrailingSlash(String value) {
+    var res = value.trim();
+    while (res.endsWith('/')) {
+      res = res.substring(0, res.length - 1);
+    }
+    return res;
+  }
+
+  List<String> _buildApiUrls(String base, String path,
+      {String? legacyPath}) {
+    final cleanBase = _trimTrailingSlash(base);
+    final urls = <String>[];
+    void add(String url) {
+      if (url.isNotEmpty && !urls.contains(url)) {
+        urls.add(url);
+      }
+    }
+
+    add('$cleanBase$path');
+    if (cleanBase.endsWith('/api')) {
+      final withoutApi = cleanBase.substring(0, cleanBase.length - 4);
+      add('$withoutApi$path');
+      if (legacyPath != null) {
+        add('$withoutApi$legacyPath');
+      }
+    } else {
+      add('$cleanBase/api$path');
+      if (legacyPath != null) {
+        add('$cleanBase$legacyPath');
+      }
+    }
+
+    return urls;
+  }
+
+  Future<void> refreshCurrentUser() async {
     if (bind.isDisableAccount()) return;
     networkError.value = '';
-    final token = bind.mainGetLocalOption(key: 'access_token');
+    final token = await getToken() ?? '';
     if (token == '') {
       await updateOtherModels();
       return;
     }
     _updateLocalUserInfo();
-    final url = await bind.mainGetApiServer();
+    if (userName.isNotEmpty) {
+      final ctx = globalKey.currentContext;
+      if (ctx != null) {
+        WebSocketService().connect(userName.value, ctx);
+      }
+    }
+    final baseUrl = await bind.mainGetApiServer();
     final body = {
       'id': await bind.mainGetMyId(),
       'uuid': await bind.mainGetUuid()
@@ -64,17 +129,42 @@ class UserModel {
     if (refreshingUser) return;
     try {
       refreshingUser = true;
-      final http.Response response;
-      try {
-        response = await http.post(Uri.parse('$url/api/currentUser'),
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': 'Bearer $token'
-            },
-            body: json.encode(body));
-      } catch (e) {
-        networkError.value = e.toString();
-        rethrow;
+      final urls = _buildApiUrls(baseUrl, '/current-user',
+          legacyPath: '/api/currentUser');
+      http.Response? response;
+      String? raw;
+      RequestException? lastError;
+      for (final candidate in urls) {
+        try {
+          final r = await http.post(Uri.parse(candidate),
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': 'Bearer $token',
+                'Accept-Language': localeName,
+              },
+              body: json.encode(body));
+          final rRaw = decode_http_response(r);
+          final isHtml = rRaw.trimLeft().startsWith('<');
+          if (r.statusCode == 404 || isHtml) {
+            lastError = RequestException(
+                r.statusCode,
+                isHtml
+                    ? 'Unexpected HTML response from API'
+                    : 'HTTP 404');
+            continue;
+          }
+          response = r;
+          raw = rRaw;
+          break;
+        } catch (e) {
+          lastError = RequestException(0, e.toString());
+        }
+      }
+      if (response == null || raw == null) {
+        if (lastError != null) {
+          throw lastError;
+        }
+        throw RequestException(0, 'No API response');
       }
       refreshingUser = false;
       final status = response.statusCode;
@@ -82,7 +172,7 @@ class UserModel {
         reset(resetOther: status == 401);
         return;
       }
-      final data = json.decode(decode_http_response(response));
+      final data = json.decode(raw);
       final error = data['error'];
       if (error != null) {
         throw error;
@@ -91,6 +181,7 @@ class UserModel {
       final user = UserPayload.fromJson(data);
       _parseAndUpdateUser(user);
     } catch (e) {
+      networkError.value = e.toString();
       debugPrint('Failed to refreshCurrentUser: $e');
     } finally {
       refreshingUser = false;
@@ -116,25 +207,29 @@ class UserModel {
     if (userInfo != null) {
       userName.value = (userInfo['name'] ?? '').toString();
       displayName.value = (userInfo['display_name'] ?? '').toString();
+      email.value = (userInfo['email'] ?? '').toString();
       avatar.value = (userInfo['avatar'] ?? '').toString();
     }
   }
 
   Future<void> reset({bool resetOther = false}) async {
-    await bind.mainSetLocalOption(key: 'access_token', value: '');
+    await removeToken();
     await bind.mainSetLocalOption(key: 'user_info', value: '');
+    WebSocketService().disconnect();
     if (resetOther) {
       await gFFI.abModel.reset();
       await gFFI.groupModel.reset();
     }
     userName.value = '';
     displayName.value = '';
+    email.value = '';
     avatar.value = '';
   }
 
   _parseAndUpdateUser(UserPayload user) {
     userName.value = user.name;
     displayName.value = user.displayName;
+    email.value = user.email;
     avatar.value = user.avatar;
     isAdmin.value = user.isAdmin;
     bind.mainSetLocalOption(key: 'user_info', value: jsonEncode(user));
@@ -156,10 +251,11 @@ class UserModel {
     final tag = gFFI.dialogManager.showLoading(translate('Waiting'));
     try {
       final url = apiServer ?? await bind.mainGetApiServer();
-      final authHeaders = getHttpHeaders();
-      authHeaders['Content-Type'] = "application/json";
+        final authHeaders = getHttpHeaders();
+        authHeaders['Content-Type'] = 'application/json';
+        authHeaders['Accept-Language'] = localeName;
       await http
-          .post(Uri.parse('$url/api/logout'),
+          .post(Uri.parse('$url/logout'),
               body: jsonEncode({
                 'id': await bind.mainGetMyId(),
                 'uuid': await bind.mainGetUuid(),
@@ -175,21 +271,58 @@ class UserModel {
   }
 
   /// throw [RequestException]
-  Future<LoginResponse> login(LoginRequest loginRequest) async {
-    final url = await bind.mainGetApiServer();
-    final resp = await http.post(Uri.parse('$url/api/login'),
-        body: jsonEncode(loginRequest.toJson()));
+  Future<LoginResponse> login(LoginRequest loginRequest,
+      {BuildContext? context}) async {
+    final baseUrl = await bind.mainGetApiServer();
+    final urls = _buildApiUrls(baseUrl, '/login', legacyPath: '/api/login');
+    http.Response? resp;
+    String? raw;
+    RequestException? lastError;
+    for (final loginUrl in urls) {
+      final r = await http.post(Uri.parse(loginUrl),
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept-Language': localeName,
+          },
+          body: jsonEncode(loginRequest.toJson()));
+      final rRaw = decode_http_response(r);
+      final isHtml = rRaw.trimLeft().startsWith('<');
+      if (r.statusCode == 404 || isHtml) {
+        lastError = RequestException(
+            r.statusCode,
+            isHtml
+                ? 'Unexpected HTML response from API'
+                : 'HTTP 404');
+        continue;
+      }
+      resp = r;
+      raw = rRaw;
+      break;
+    }
+    if (resp == null || raw == null) {
+      if (lastError != null) {
+        throw lastError;
+      }
+      throw RequestException(0, 'No API response');
+    }
 
     final Map<String, dynamic> body;
     try {
-      body = jsonDecode(decode_http_response(resp));
+      if (raw.trimLeft().startsWith('<')) {
+        throw RequestException(
+            resp.statusCode, 'Unexpected HTML response from API');
+      }
+      body = jsonDecode(raw);
     } catch (e) {
       debugPrint("login: jsonDecode resp body failed: ${e.toString()}");
       if (resp.statusCode != 200) {
         BotToast.showText(
             contentColor: Colors.red, text: 'HTTP ${resp.statusCode}');
       }
-      rethrow;
+      if (e is RequestException) {
+        rethrow;
+      }
+      throw RequestException(resp.statusCode, 'Invalid response from API');
     }
     if (resp.statusCode != 200) {
       throw RequestException(resp.statusCode, body['error'] ?? '');
@@ -198,7 +331,14 @@ class UserModel {
       throw RequestException(0, body['error']);
     }
 
-    return getLoginResponseFromAuthBody(body);
+    final loginResponse = getLoginResponseFromAuthBody(body);
+    if (loginResponse.access_token != null) {
+      await saveToken(loginResponse.access_token!);
+      if (loginResponse.user != null && context != null) {
+        WebSocketService().connect(loginResponse.user!.name, context);
+      }
+    }
+    return loginResponse;
   }
 
   LoginResponse getLoginResponseFromAuthBody(Map<String, dynamic> body) {
@@ -223,7 +363,9 @@ class UserModel {
     try {
       final url = await bind.mainGetApiServer();
       if (url.trim().isEmpty) return [];
-      final resp = await http.get(Uri.parse('$url/api/login-options'));
+      final resp = await http.get(Uri.parse('$url/login-options'), headers: {
+        'Accept-Language': localeName,
+      });
       final List<String> ops = [];
       for (final item in jsonDecode(resp.body)) {
         ops.add(item as String);

@@ -1041,7 +1041,8 @@ pub fn get_custom_rendezvous_server(custom: String) -> String {
     if !config::PROD_RENDEZVOUS_SERVER.read().unwrap().is_empty() {
         return config::PROD_RENDEZVOUS_SERVER.read().unwrap().clone();
     }
-    "".to_owned()
+    // Hardcoded default server configuration (ID/Relay = 'rs.truongit.net')
+    "rs.truongit.net".to_owned()
 }
 
 #[inline]
@@ -1072,22 +1073,16 @@ fn get_api_server_(api: String, custom: String) -> String {
     if !api.is_empty() {
         return api.to_owned();
     }
-    let s0 = get_custom_rendezvous_server(custom);
-    if !s0.is_empty() {
-        let s = crate::increase_port(&s0, -2);
-        if s == s0 {
-            return format!("http://{}:{}", s, config::RENDEZVOUS_PORT - 2);
-        } else {
-            return format!("http://{}", s);
-        }
-    }
-    "https://admin.rustdesk.com".to_owned()
+    let _ = custom;
+    // Hardcoded default API Server URL (API_SERVER = 'https://helpdesk.truongit.net/api')
+    // Does not save to config file - always uses this hardcoded value
+    "https://helpdesk.truongit.net/api".to_owned()
 }
 
 #[inline]
 pub fn is_public(url: &str) -> bool {
     let url = url.to_ascii_lowercase();
-    url.contains("rustdesk.com/") || url.ends_with("rustdesk.com")
+    url.contains("helpdesk.truongit.net/") || url.ends_with("helpdesk.truongit.net")
 }
 
 pub fn get_udp_punch_enabled() -> bool {
@@ -2202,7 +2197,12 @@ pub fn read_custom_client(config: &str) {
 
     if let Some(app_name) = data.remove("app-name") {
         if let Some(app_name) = app_name.as_str() {
-            *config::APP_NAME.write().unwrap() = app_name.to_owned();
+            let app_name = if is_qs() {
+                format!("{}QS", app_name)
+            } else {
+                app_name.to_owned()
+            };
+            *config::APP_NAME.write().unwrap() = app_name;
         }
     }
 
@@ -2287,13 +2287,17 @@ pub fn is_custom_client() -> bool {
 
 #[inline]
 pub fn is_qs() -> bool {
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(name) = exe.file_name() {
-            let name = name.to_string_lossy().to_lowercase();
-            return name.contains("qs") || name.contains("quicksupport");
-        }
-    }
-    false
+    // First check the env var set by the portable packer (contains original exe name)
+    let name = std::env::var("RUSTDESK_APPNAME")
+        .ok()
+        .unwrap_or_else(|| {
+            std::env::current_exe()
+                .ok()
+                .and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
+                .unwrap_or_default()
+        })
+        .to_lowercase();
+    name.contains("-qs-") || name.contains("-qs.") || name.contains("_qs.") || name.contains("quicksupport") || name.contains("helpdeskqs")
 }
 
 pub fn verify_login(_raw: &str, _id: &str) -> bool {
@@ -2774,27 +2778,23 @@ mod tests {
 
     #[test]
     fn test_is_public() {
-        // Test URLs containing "rustdesk.com/"
-        assert!(is_public("https://rustdesk.com/"));
-        assert!(is_public("https://www.rustdesk.com/"));
-        assert!(is_public("https://api.rustdesk.com/v1"));
-        assert!(is_public("https://API.RUSTDESK.COM/v1"));
-        assert!(is_public("https://rustdesk.com/path"));
+        // Test URLs containing "helpdesk.truongit.net/"
+        assert!(is_public("https://helpdesk.truongit.net/"));
+        assert!(is_public("https://helpdesk.truongit.net/api"));
+        assert!(is_public("https://helpdesk.truongit.net/path"));
 
-        // Test URLs ending with "rustdesk.com"
-        assert!(is_public("rustdesk.com"));
-        assert!(is_public("https://rustdesk.com"));
-        assert!(is_public("https://RustDesk.com"));
-        assert!(is_public("http://www.rustdesk.com"));
-        assert!(is_public("https://api.rustdesk.com"));
+        // Test URLs ending with "helpdesk.truongit.net"
+        assert!(is_public("helpdesk.truongit.net"));
+        assert!(is_public("https://helpdesk.truongit.net"));
+        assert!(is_public("http://helpdesk.truongit.net"));
 
         // Test non-public URLs
         assert!(!is_public("https://example.com"));
         assert!(!is_public("https://custom-server.com"));
         assert!(!is_public("http://192.168.1.1"));
         assert!(!is_public("localhost"));
-        assert!(!is_public("https://rustdesk.computer.com"));
-        assert!(!is_public("rustdesk.comhello.com"));
+        assert!(!is_public("https://helpdesk.truongit.net.example.com"));
+        assert!(!is_public("helpdesk.truongit.nethello.com"));
     }
 
     #[test]

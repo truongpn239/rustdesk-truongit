@@ -34,8 +34,8 @@ class UserPayload {
   bool isAdmin = false;
 
   UserPayload.fromJson(Map<String, dynamic> json)
-      : name = json['name'] ?? '',
-        displayName = json['display_name'] ?? '',
+      : name = (json['name'] ?? json['username'] ?? ''),
+        displayName = json['full_name'] ?? json['display_name'] ?? '',
         avatar = json['avatar'] ?? '',
         email = json['email'] ?? '',
         note = json['note'] ?? '',
@@ -140,6 +140,8 @@ class LoginRequest {
   String? verificationCode;
   String? tfaCode;
   String? secret;
+  String? hardwareId;
+  String? deviceName;
 
   LoginRequest(
       {this.username,
@@ -150,7 +152,9 @@ class LoginRequest {
       this.type,
       this.verificationCode,
       this.tfaCode,
-      this.secret});
+      this.secret,
+      this.hardwareId,
+      this.deviceName});
 
   Map<String, dynamic> toJson() {
     final Map<String, dynamic> data = <String, dynamic>{};
@@ -165,6 +169,12 @@ class LoginRequest {
     }
     if (tfaCode != null) data['tfaCode'] = tfaCode;
     if (secret != null) data['secret'] = secret;
+    if (hardwareId != null && hardwareId!.isNotEmpty) {
+      data['hardware_id'] = hardwareId;
+    }
+    if (deviceName != null && deviceName!.isNotEmpty) {
+      data['device_name'] = deviceName;
+    }
 
     Map<String, dynamic> deviceInfo = {};
     try {

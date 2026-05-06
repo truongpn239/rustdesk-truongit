@@ -2018,7 +2018,7 @@ class _AccountState extends State<_Account> {
     return ListView(
       controller: scrollController,
       children: [
-        _Card(title: 'Account', children: [accountAction(), useInfo()]),
+        _Card(title: 'Account', children: [useInfo()]),
       ],
     ).marginOnly(bottom: _kListViewBottomMargin);
   }
@@ -2054,28 +2054,46 @@ class _AccountState extends State<_Account> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          gFFI.userModel.displayNameOrUserName,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                        const SizedBox(height: 2),
                         SelectionArea(
                           child: Text(
-                            '@${gFFI.userModel.userName.value}',
+                            'User: ${gFFI.userModel.userName.value}',
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
+                            style: const TextStyle(
                               fontSize: 13,
-                              color:
-                                  Theme.of(context).textTheme.bodySmall?.color,
+                              fontWeight: FontWeight.w500,
                             ),
                           ),
                         ),
+                        const SizedBox(height: 4),
+                        if (gFFI.userModel.displayName.value.isNotEmpty)
+                          SelectionArea(
+                            child: Text(
+                              'Full name: ${gFFI.userModel.displayName.value}',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 13,
+                                color:
+                                    Theme.of(context).textTheme.bodySmall?.color,
+                              ),
+                            ),
+                          ),
+                        if (gFFI.userModel.displayName.value.isNotEmpty)
+                          const SizedBox(height: 4),
+                        if (gFFI.userModel.email.value.isNotEmpty)
+                          SelectionArea(
+                            child: Text(
+                              'Email: ${gFFI.userModel.email.value}',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 13,
+                                color:
+                                    Theme.of(context).textTheme.bodySmall?.color,
+                              ),
+                            ),
+                          ),
                       ],
                     ),
                   ),
@@ -2370,7 +2388,7 @@ class _AboutState extends State<_About> {
       final scrollController = ScrollController();
       return SingleChildScrollView(
         controller: scrollController,
-        child: _Card(title: translate('About RustDesk'), children: [
+        child: _Card(title: translate('About HelpDesk'), children: [
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -2389,7 +2407,7 @@ class _AboutState extends State<_About> {
                         .marginSymmetric(vertical: 4.0)),
               InkWell(
                   onTap: () {
-                    launchUrlString('https://rustdesk.com/privacy.html');
+                    launchUrlString('https://helpdesk.truongit.net/privacy.php');
                   },
                   child: Text(
                     translate('Privacy Statement'),
@@ -2397,7 +2415,7 @@ class _AboutState extends State<_About> {
                   ).marginSymmetric(vertical: 4.0)),
               InkWell(
                   onTap: () {
-                    launchUrlString('https://rustdesk.com');
+                    launchUrlString('https://truongit.net');
                   },
                   child: Text(
                     translate('Website'),

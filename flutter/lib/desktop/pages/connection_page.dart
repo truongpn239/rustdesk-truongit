@@ -38,7 +38,10 @@ class _OnlineStatusWidgetState extends State<OnlineStatusWidget> {
   Timer? _updateTimer;
 
   double get em => 14.0;
-  double? get height => bind.isIncomingOnly() ? null : em * 3;
+  double? get height {
+    final isQs = bind.mainGetCommonSync(key: 'is-qs') == 'true';
+    return (bind.isIncomingOnly() || isQs) ? null : em * 3;
+  }
 
   void onUsePublicServerGuide() {
     const url = "https://rustdesk.com/pricing";
@@ -65,7 +68,8 @@ class _OnlineStatusWidgetState extends State<OnlineStatusWidget> {
 
   @override
   Widget build(BuildContext context) {
-    final isIncomingOnly = bind.isIncomingOnly();
+    final isQs = bind.mainGetCommonSync(key: 'is-qs') == 'true';
+    final isIncomingOnly = bind.isIncomingOnly() || isQs;
     startServiceWidget() => Offstage(
           offstage: !_svcStopped.value,
           child: InkWell(
@@ -143,10 +147,11 @@ class _OnlineStatusWidgetState extends State<OnlineStatusWidget> {
           ? Column(
               children: [
                 basicWidget(),
-                Align(
-                        child: startServiceWidget(),
-                        alignment: Alignment.centerLeft)
-                    .marginOnly(top: 2.0, left: 22.0),
+                if (_svcStopped.value)
+                  Align(
+                          child: startServiceWidget(),
+                          alignment: Alignment.centerLeft)
+                      .marginOnly(top: 2.0, left: 22.0),
               ],
             )
           : basicWidget()),

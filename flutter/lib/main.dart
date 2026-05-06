@@ -28,6 +28,7 @@ import 'consts.dart';
 import 'mobile/pages/home_page.dart';
 import 'mobile/pages/server_page.dart';
 import 'models/platform_model.dart';
+import 'login.dart';
 
 import 'package:flutter_hbb/plugin/handlers.dart'
     if (dart.library.html) 'package:flutter_hbb/web/plugin/handlers.dart';
@@ -130,6 +131,8 @@ Future<void> initEnv(String appType) async {
   _registerEventHandler();
   // Update the system theme.
   updateSystemWindowTheme();
+  // Apply and persist default server config on startup.
+  await setServerConfig(null, null, ServerConfig());
 }
 
 void runMainApp(bool startService) async {
@@ -144,7 +147,7 @@ void runMainApp(bool startService) async {
     bind.pluginListReload();
   }
   await Future.wait([gFFI.abModel.loadCache(), gFFI.groupModel.loadCache()]);
-  gFFI.userModel.refreshCurrentUser();
+  await gFFI.userModel.refreshCurrentUser();
   runApp(App());
 
   bool? alwaysOnTop;
@@ -155,10 +158,11 @@ void runMainApp(bool startService) async {
 
   // Set window option.
   WindowOptions windowOptions = getHiddenTitleBarWindowOptions(
-      isMainWindow: true, alwaysOnTop: alwaysOnTop);
+      isMainWindow: true, alwaysOnTop: alwaysOnTop, center: true);
   windowManager.waitUntilReadyToShow(windowOptions, () async {
     // Restore the location of the main window before window hide or show.
     await restoreWindowPosition(WindowType.Main);
+    await windowManager.center();
     // Check the startup argument, if we successfully handle the argument, we keep the main window hidden.
     final handledByUniLinks = await initUniLinks();
     debugPrint("handled by uni links: $handledByUniLinks");
@@ -173,7 +177,14 @@ void runMainApp(bool startService) async {
     windowManager.setOpacity(1);
     windowManager.setTitle(getWindowName());
     // Do not use `windowManager.setResizable()` here.
-    setResizable(!bind.isIncomingOnly());
+    final isQs = bind.mainGetCommonSync(key: 'is-qs') == 'true';
+    if (isQs) {
+      await windowManager.setSize(getQsHomeSize());
+      await windowManager.setMaximizable(false);
+      setResizable(false);
+    } else {
+      setResizable(!bind.isIncomingOnly());
+    }
   });
 }
 
@@ -365,6 +376,7 @@ void _runApp(
       navigatorKey: globalKey,
       debugShowCheckedModeBanner: false,
       title: title,
+      locale: localeName == 'vi' ? const Locale('vi') : const Locale('en', 'US'),
       theme: MyTheme.lightTheme,
       darkTheme: MyTheme.darkTheme,
       themeMode: themeMode,
@@ -428,6 +440,8 @@ class App extends StatefulWidget {
 }
 
 class _AppState extends State<App> with WidgetsBindingObserver {
+  bool _loginRequired = false;
+
   @override
   void initState() {
     super.initState();
@@ -453,6 +467,7 @@ class _AppState extends State<App> with WidgetsBindingObserver {
     };
     WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) => _updateOrientation());
+    _initLoginFlow();
   }
 
   @override
@@ -481,6 +496,20 @@ class _AppState extends State<App> with WidgetsBindingObserver {
     stateGlobal.isPortrait.value = orientation == Orientation.portrait;
   }
 
+  void _initLoginFlow() {
+    if (!isDesktop || desktopType != DesktopType.main) {
+      clearLoginRequired();
+      return;
+    }
+    final isQs = bind.mainGetCommonSync(key: 'is-qs') == 'true';
+    _loginRequired = !isQs && !gFFI.userModel.isLogin;
+    if (_loginRequired) {
+      requireLogin();
+    } else {
+      clearLoginRequired();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     // final analytics = FirebaseAnalytics.instance;
@@ -502,11 +531,29 @@ class _AppState extends State<App> with WidgetsBindingObserver {
           title: isWeb
               ? '${bind.mainGetAppNameSync()} Web Client V2 (Preview)'
               : bind.mainGetAppNameSync(),
+          locale: localeName == 'vi' ? const Locale('vi') : const Locale('en', 'US'),
           theme: MyTheme.lightTheme,
           darkTheme: MyTheme.darkTheme,
           themeMode: MyTheme.currentThemeMode(),
           home: isDesktop
-              ? const DesktopTabPage()
+              ? ValueListenableBuilder<bool>(
+                  valueListenable: loginRequiredNotifier,
+                  builder: (context, requiredLogin, _) {
+                    if (_loginRequired && requiredLogin) {
+                      return LoginScreen(
+                        onExit: () => exit(0),
+                        onLoggedIn: () {
+                          if (mounted) {
+                            setState(() {
+                              clearLoginRequired();
+                            });
+                          }
+                        },
+                      );
+                    }
+                    return const DesktopTabPage();
+                  },
+                )
               : isWeb
                   ? WebHomePage()
                   : HomePage(),

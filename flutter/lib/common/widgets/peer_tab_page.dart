@@ -160,28 +160,35 @@ class _PeerTabPageState extends State<PeerTabPage>
           return ReorderableDragStartListener(
               key: ValueKey(t),
               index: counter,
-              child: Obx(() => Tooltip(
-                    preferBelow: false,
-                    message: model.tabTooltip(t),
-                    onTriggered: isMobile ? mobileShowTabVisibilityMenu : null,
-                    child: InkWell(
-                      child: Container(
-                        decoration: (hover.value
-                            ? (selected ? decoBorder : deco)
-                            : (selected ? decoBorder : null)),
-                        child: Icon(model.tabIcon(t), color: color)
-                            .paddingSymmetric(horizontal: 4),
-                      ).paddingSymmetric(horizontal: 4),
-                      onTap: isOptionFixed(kOptionPeerTabIndex)
-                          ? null
-                          : () async {
-                              await handleTabSelection(t);
-                              await bind.setLocalFlutterOption(
-                                  k: kOptionPeerTabIndex, v: t.toString());
-                            },
-                      onHover: (value) => hover.value = value,
-                    ),
-                  )));
+              child: Obx(() {
+                final message = model.tabTooltip(t);
+                final tabChild = InkWell(
+                  child: Container(
+                    decoration: (hover.value
+                        ? (selected ? decoBorder : deco)
+                        : (selected ? decoBorder : null)),
+                    child: Icon(model.tabIcon(t), color: color)
+                        .paddingSymmetric(horizontal: 4),
+                  ).paddingSymmetric(horizontal: 4),
+                  onTap: isOptionFixed(kOptionPeerTabIndex)
+                      ? null
+                      : () async {
+                          await handleTabSelection(t);
+                          await bind.setLocalFlutterOption(
+                              k: kOptionPeerTabIndex, v: t.toString());
+                        },
+                  onHover: (value) => hover.value = value,
+                );
+                if (message.isEmpty) {
+                  return tabChild;
+                }
+                return Tooltip(
+                  preferBelow: false,
+                  message: message,
+                  onTriggered: isMobile ? mobileShowTabVisibilityMenu : null,
+                  child: tabChild,
+                );
+              }));
         }).toList());
   }
 

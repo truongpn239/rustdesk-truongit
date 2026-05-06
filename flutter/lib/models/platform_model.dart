@@ -3,7 +3,16 @@ import 'package:flutter_hbb/generated_bridge.dart'
     if (dart.library.html) 'package:flutter_hbb/web/bridge.dart';
 
 final platformFFI = PlatformFFI.instance;
-final localeName = PlatformFFI.localeName;
+
+String _normalizeLocaleName(String value) {
+  final lower = value.toLowerCase();
+  if (lower.startsWith('vi')) {
+    return 'vi';
+  }
+  return 'en';
+}
+
+final localeName = _normalizeLocaleName(PlatformFFI.localeName);
 
 RustdeskImpl get bind => platformFFI.ffiBind;
 

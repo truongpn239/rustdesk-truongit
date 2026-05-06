@@ -33,6 +33,13 @@ pub fn core_main() -> Option<Vec<String>> {
         return None;
     }
     crate::load_custom_client();
+    // Override APP_NAME for QuickSupport variant so config goes to AppData\Roaming\HelpDeskQS
+    if crate::common::is_qs() {
+        let current = config::APP_NAME.read().unwrap().clone();
+        if !current.ends_with("QS") {
+            *config::APP_NAME.write().unwrap() = format!("{}QS", current);
+        }
+    }
     #[cfg(windows)]
     if !crate::platform::windows::bootstrap() {
         // return None to terminate the process
@@ -166,6 +173,7 @@ pub fn core_main() -> Option<Vec<String>> {
         && _is_quick_support
         && !_is_elevate
         && !_is_run_as_system
+        && config::LocalConfig::get_option("pre-elevate-service") == "Y"
     {
         use crate::portable_service::client;
         if let Err(e) = client::start_portable_service(client::StartPara::Direct) {
@@ -846,5 +854,5 @@ fn is_root() -> bool {
 #[inline]
 fn is_quick_support_exe(exe: &str) -> bool {
     let exe = exe.to_lowercase();
-    exe.contains("-qs-") || exe.contains("-qs.exe") || exe.contains("_qs.exe")
+    exe.contains("-qs-") || exe.contains("-qs.exe") || exe.contains("_qs.exe") || exe.contains("quicksupport") || exe.contains("helpdeskqs")
 }

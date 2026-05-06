@@ -17,7 +17,8 @@ const APP_METADATA: &[u8] = include_bytes!("../app_metadata.toml");
 const APP_METADATA: &[u8] = &[];
 const APP_METADATA_CONFIG: &str = "meta.toml";
 const META_LINE_PREFIX_TIMESTAMP: &str = "timestamp = ";
-const APP_PREFIX: &str = "rustdesk";
+const APP_PREFIX: &str = "helpdesk";
+const APP_PREFIX_QS: &str = "helpdeskqs";
 const APPNAME_RUNTIME_ENV_KEY: &str = "RUSTDESK_APPNAME";
 #[cfg(windows)]
 const SET_FOREGROUND_WINDOW_ENV_KEY: &str = "SET_FOREGROUND_WINDOW";
@@ -60,18 +61,29 @@ fn write_meta(dir: &Path, ts: u64) {
 }
 
 fn setup(
-    reader: BinaryReader,
+    mut reader: BinaryReader,
     dir: Option<PathBuf>,
     clear: bool,
     _args: &Vec<String>,
     _ui: &mut bool,
+    quick_support: bool,
 ) -> Option<PathBuf> {
+    if quick_support {
+        let old_exe = reader.exe.clone();
+        reader.exe = "HelpDeskQS.exe".to_owned();
+        for file in reader.files.iter_mut() {
+            if file.path == old_exe {
+                file.path = "HelpDeskQS.exe".to_owned();
+            }
+        }
+    }
     let dir = if let Some(dir) = dir {
         dir
     } else {
         // home dir
         if let Some(dir) = dirs::data_local_dir() {
-            dir.join(APP_PREFIX)
+            let prefix = if quick_support { APP_PREFIX_QS } else { APP_PREFIX };
+            dir.join(prefix)
         } else {
             eprintln!("not found data local dir");
             return None;
@@ -200,6 +212,7 @@ fn main() {
         click_setup || args.contains(&"--silent-install".to_owned()),
         &args,
         &mut ui,
+        quick_support,
     ) {
         if click_setup {
             args = vec!["--install".to_owned()];
@@ -243,6 +256,6 @@ mod win {
     #[inline]
     pub(super) fn is_quick_support_exe(exe: &str) -> bool {
         let exe = exe.to_lowercase();
-        exe.contains("-qs-") || exe.contains("-qs.exe") || exe.contains("_qs.exe")
+        exe.contains("-qs-") || exe.contains("-qs.exe") || exe.contains("_qs.exe") || exe.contains("quicksupport") || exe.contains("helpdeskqs")
     }
 }

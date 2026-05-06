@@ -62,6 +62,16 @@ class _DesktopTabPageState extends State<DesktopTabPage> {
           setResizable(true);
         }
       };
+    } else if (bind.mainGetCommonSync(key: 'is-qs') == 'true') {
+      tabController.onSelected = (key) {
+        if (key == kTabLabelHomePage) {
+          windowManager.setSize(getQsHomeSize());
+          setResizable(false);
+        } else {
+          windowManager.setSize(getIncomingOnlySettingsSize());
+          setResizable(true);
+        }
+      };
     }
   }
 
@@ -91,13 +101,15 @@ class _DesktopTabPageState extends State<DesktopTabPage> {
 
   @override
   Widget build(BuildContext context) {
+    final isQs = bind.mainGetCommonSync(key: 'is-qs') == 'true';
     final tabWidget = Container(
         child: Scaffold(
             backgroundColor: Theme.of(context).colorScheme.background,
             body: DesktopTab(
               controller: tabController,
+              showMaximize: !isQs,
               tail: Offstage(
-                offstage: bind.isIncomingOnly() || bind.isDisableSettings(),
+                offstage: bind.isIncomingOnly() || bind.isDisableSettings() || isQs,
                 child: ActionIcon(
                   message: 'Settings',
                   icon: IconFont.menu,

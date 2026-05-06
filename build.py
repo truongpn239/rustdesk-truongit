@@ -45,6 +45,23 @@ def system2(cmd):
         sys.exit(-1)
 
 
+def move_file(src, dst):
+    try:
+        if windows and os.path.normcase(src) == os.path.normcase(dst):
+            if os.path.exists(dst):
+                os.unlink(dst)
+            temp = dst + '.tmp'
+            if os.path.exists(temp):
+                os.unlink(temp)
+            shutil.move(src, temp)
+            shutil.move(temp, dst)
+        else:
+            shutil.move(src, dst)
+    except Exception as exc:
+        sys.stderr.write(f"Error occurred when moving: `{src}` -> `{dst}`. {exc}\n")
+        sys.exit(-1)
+
+
 def get_version():
     with open("Cargo.toml", encoding="utf-8") as fh:
         for line in fh:
@@ -442,6 +459,10 @@ def build_flutter_windows(version, features, skip_portable_pack):
     os.chdir('..')
     shutil.copy2('target/release/deps/dylib_virtual_display.dll',
                  flutter_build_dir_2)
+    debug_dir = 'flutter/build/windows/x64/runner/Debug'
+    os.makedirs(debug_dir, exist_ok=True)
+    shutil.copy2('target/release/librustdesk.dll', debug_dir)
+    shutil.copy2('target/release/deps/dylib_virtual_display.dll', debug_dir)
     if skip_portable_pack:
         return
     os.chdir('libs/portable')
@@ -449,17 +470,18 @@ def build_flutter_windows(version, features, skip_portable_pack):
     system2(
         f'python3 ./generate.py -f ../../{flutter_build_dir_2} -o . -e ../../{flutter_build_dir_2}/rustdesk.exe')
     os.chdir('../..')
-    if os.path.exists('./rustdesk_portable.exe'):
-        os.replace('./target/release/rustdesk-portable-packer.exe',
-                   './rustdesk_portable.exe')
-    else:
-        os.rename('./target/release/rustdesk-portable-packer.exe',
-                  './rustdesk_portable.exe')
-    print(
-        f'output location: {os.path.abspath(os.curdir)}/rustdesk_portable.exe')
-    os.rename('./rustdesk_portable.exe', f'./rustdesk-{version}-install.exe')
-    print(
-        f'output location: {os.path.abspath(os.curdir)}/rustdesk-{version}-install.exe')
+    full_exe = f'./helpdesk-{version}.exe'
+    qs_exe = f'./helpdesk-{version}-quicksupport.exe'
+    
+    if os.path.exists(full_exe):
+        os.remove(full_exe)
+    os.rename('./target/release/rustdesk-portable-packer.exe', full_exe)
+    print(f'output location: {os.path.abspath(full_exe)}')
+    
+    if os.path.exists(qs_exe):
+        os.remove(qs_exe)
+    shutil.copy2(full_exe, qs_exe)
+    print(f'output location: {os.path.abspath(qs_exe)}')
 
 
 def main():
@@ -497,7 +519,7 @@ def main():
             return
         system2('cargo build --release --features ' + features)
         # system2('upx.exe target/release/rustdesk.exe')
-        system2('mv target/release/rustdesk.exe target/release/RustDesk.exe')
+        move_file('target/release/rustdesk.exe', 'target/release/RustDesk.exe')
         pa = os.environ.get('P')
         if pa:
             # https://certera.com/kb/tutorial-guide-for-safenet-authentication-client-for-code-signing/

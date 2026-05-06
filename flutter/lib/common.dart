@@ -673,7 +673,7 @@ List<Locale> supportedLocales = const [
   Locale('eu'),
   Locale('bg'),
   Locale('be'),
-  Locale('vn'),
+  Locale('vi'),
   Locale('uk'),
   Locale('fa'),
   Locale('ca'),
@@ -3685,7 +3685,7 @@ Widget loadPowered(BuildContext context) {
     cursor: SystemMouseCursors.click,
     child: GestureDetector(
       onTap: () {
-        launchUrl(Uri.parse('https://rustdesk.com'));
+        launchUrl(Uri.parse('https://truongit.net'));
       },
       child: Opacity(
           opacity: 0.5,
@@ -3743,7 +3743,27 @@ Size getIncomingOnlyHomeSize() {
 }
 
 Size getIncomingOnlySettingsSize() {
-  return Size(768, 600);
+  return Size(768, 440);
+}
+
+Size getQsHomeSize() {
+  final magicWidth = isWindows ? 11.0 : 2.0;
+  final magicHeight = 10.0;
+  return Size(420, 440) + Offset(magicWidth, kDesktopRemoteTabBarHeight + magicHeight);
+}
+
+Size getQsHomeSizeWithUpdate() {
+  final magicWidth = isWindows ? 11.0 : 2.0;
+  final magicHeight = 10.0;
+  return Size(420, 440) +
+      Offset(magicWidth, kDesktopRemoteTabBarHeight + magicHeight);
+}
+
+Size getQsHomeSizeWithDialog() {
+  final magicWidth = isWindows ? 11.0 : 2.0;
+  final magicHeight = 10.0;
+  return Size(420, 500) +
+      Offset(magicWidth, kDesktopRemoteTabBarHeight + magicHeight);
 }
 
 bool isInHomePage() {
@@ -3971,14 +3991,17 @@ void checkUpdate() {
           final data = jsonDecode(resp.body);
           final platformKey = isMacOS ? 'macos' : 'windows';
           if (data[platformKey] != null) {
-            final newVer = data[platformKey]['version'].toString();
-            final downloadUrl = data[platformKey]['download_url'].toString();
-            final currentVer = await bind.mainGetVersion();
-            // Compare version strings: just a simple string compare is usually fine if format is consistent (e.g. 1.4.5 vs 1.4.4)
-            if (newVer.compareTo(currentVer) > 0) {
-              stateGlobal.updateVersion.value = newVer;
-              stateGlobal.updateUrl.value =
-                  'https://helpdesk.truongit.net' + downloadUrl;
+            final isQs = bind.mainGetCommonSync(key: 'is-qs') == 'true';
+            if (data[platformKey]['version'] != null) {
+              final newVer = data[platformKey]['version'].toString();
+              final downloadUrl = data[platformKey][isQs ? 'quicksupport_url' : 'download_url'].toString();
+              final currentVer = await bind.mainGetVersion();
+              // Compare version strings: just a simple string compare is usually fine if format is consistent (e.g. 1.4.5 vs 1.4.4)
+              if (newVer.compareTo(currentVer) > 0) {
+                stateGlobal.updateVersion.value = newVer;
+                stateGlobal.updateUrl.value =
+                    'https://helpdesk.truongit.net' + downloadUrl;
+              }
             }
           }
         }
