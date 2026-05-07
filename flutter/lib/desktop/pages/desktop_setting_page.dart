@@ -2415,7 +2415,7 @@ class _AboutState extends State<_About> {
                   ).marginSymmetric(vertical: 4.0)),
               InkWell(
                   onTap: () {
-                    launchUrlString('https://truongit.net');
+                    launchUrlString('https://helpdesk.truongit.net');
                   },
                   child: Text(
                     translate('Website'),
@@ -2433,7 +2433,7 @@ class _AboutState extends State<_About> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'Copyright © ${DateTime.now().toString().substring(0, 4)} Purslane Ltd.\n$license',
+                            'Copyright © 2025 - ${DateTime.now().toString().substring(0, 4)} Purslane Ltd.\n$license',
                             style: const TextStyle(color: Colors.white),
                           ),
                           Text(
