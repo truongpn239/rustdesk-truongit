@@ -425,6 +425,13 @@ class _DesktopTabState extends State<DesktopTab>
 
   @override
   void onWindowResized() {
+    if (tabType == DesktopTabType.main &&
+        bind.mainGetCommonSync(key: 'is-qs') == 'true') {
+      // QS intentionally grows for update/UAC cards and dialogs. Do not persist
+      // these transient sizes, but also do not force-shrink during the resize.
+      super.onWindowResized();
+      return;
+    }
     _saveFrame();
     super.onWindowResized();
   }

@@ -154,6 +154,29 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   if (!window.CreateAndShow(window_title, origin, size, !is_cm_page)) {
       return EXIT_FAILURE;
   }
+  // Single-instance guard: create a named mutex based on app name so
+  // rapid repeated launches won't create multiple main windows.
+  {
+    std::wstring mutex_name = app_name + L"_INSTANCE_MUTEX";
+    HANDLE hMutex = CreateMutexW(nullptr, FALSE, mutex_name.c_str());
+    if (hMutex != nullptr) {
+      if (GetLastError() == ERROR_ALREADY_EXISTS) {
+        // Another instance already running: bring existing window to front
+        HWND existing_hwnd = ::FindWindowW(getWindowClassName(), app_name.c_str());
+        if (existing_hwnd != NULL) {
+          if (!command_line_arguments.empty()) {
+            // Dispatch args to existing instance
+            DispatchToUniLinksDesktop(existing_hwnd);
+          } else {
+            ::ShowWindow(existing_hwnd, SW_NORMAL);
+            ::SetForegroundWindow(existing_hwnd);
+          }
+        }
+        return EXIT_SUCCESS;
+      }
+      // Keep mutex open in this process until exit.
+    }
+  }
   window.SetQuitOnClose(true);
 
   ::MSG msg;

@@ -5,7 +5,7 @@ authors = ["rustdesk <info@rustdesk.com>"]
 edition = "2021"
 build= "build.rs"
 description = "HelpDesk Remote Desktop"
-default-run = "rustdesk"
+default-run = "HelpDesk"
 rust-version = "1.75"
 
 [lib]
@@ -19,6 +19,10 @@ path = "src/naming.rs"
 [[bin]]
 name = "service"
 path = "src/service.rs"
+
+[[bin]]
+name = "HelpDesk"
+path = "src/main.rs"
 
 [features]
 inline = []
@@ -216,7 +220,7 @@ libxdo-sys = { path = "libs/libxdo-sys-stub" }
 LegalCopyright = "Copyright © 2025 Purslane Ltd. All rights reserved."
 ProductName = "HelpDesk"
 FileDescription = "HelpDesk Remote Desktop"
-OriginalFilename = "helpdesk.exe"
+OriginalFilename = "HelpDesk.exe"
 
 [target.'cfg(target_os="windows")'.build-dependencies]
 winres = "0.1"

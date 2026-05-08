@@ -51,11 +51,13 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   Timer? _updateTimer;
   bool isCardClosed = false;
   bool _qsExpandedForUpdate = false;
+  bool _qsExpandedForStatusWarning = false;
 
   final RxBool _editHover = false.obs;
   final RxBool _block = false.obs;
 
   final GlobalKey _childKey = GlobalKey();
+  Size? _lastQsWindowSize;
 
   @override
   Widget build(BuildContext context) {
@@ -98,60 +100,107 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       buildTip(context),
       if (!isOutgoingOnly) buildIDBoard(context),
       if (!isOutgoingOnly) buildPasswordBoard(context),
-      FutureBuilder<Widget>(
-        future: Future.value(
-            Obx(() => buildHelpCards(stateGlobal.updateUrl.value))),
-        builder: (_, data) {
-          if (data.hasData) {
-            if (isIncomingOnly) {
-              if (isInHomePage()) {
-                Future.delayed(Duration(milliseconds: 300), () {
-                  _updateWindowSize();
-                });
-              }
-            }
-            return data.data!;
-          } else {
-            return const SizedBox();
-          }
-        },
-      ),
+      Obx(() {
+        final widget = buildHelpCards(stateGlobal.updateUrl.value);
+        if (isIncomingOnly && isInHomePage()) {
+          Future.delayed(const Duration(milliseconds: 300), () {
+            if (mounted) _updateWindowSize();
+          });
+        }
+        return widget;
+      }),
       buildPluginEntry(),
     ];
-    if (isIncomingOnly || isQs) {
-      children.addAll([
-        Divider(),
-        OnlineStatusWidget(
-          onSvcStatusChanged: () {
-            if (isInHomePage()) {
-              Future.delayed(Duration(milliseconds: 300), () {
+    final statusWidget = OnlineStatusWidget(
+      onSvcStatusChanged: () {
+        final isQsNow = bind.mainGetCommonSync(key: 'is-qs') == 'true';
+        final hasStatusWarning =
+            Get.find<RxBool>(tag: 'stop-service').value ||
+                stateGlobal.svcStatus.value != SvcStatus.ready;
+        if (isQsNow) {
+          if (hasStatusWarning != _qsExpandedForStatusWarning) {
+            _qsExpandedForStatusWarning = hasStatusWarning;
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (mounted) {
                 _updateWindowSize();
-              });
-            }
-          },
-        ).marginOnly(bottom: 6, right: 6)
-      ]);
+              }
+            });
+          }
+        }
+        if (isInHomePage()) {
+          Future.delayed(Duration(milliseconds: 300), () {
+            _updateWindowSize();
+          });
+        }
+      },
+    ).marginOnly(bottom: 6, right: 6);
+
+    if (isIncomingOnly && !isQs) {
+      children.addAll([Divider(), statusWidget]);
+    }
+    if (isQs) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _updateWindowSize();
+      });
     }
     final textColor = Theme.of(context).textTheme.titleLarge?.color;
     return ChangeNotifierProvider.value(
       value: gFFI.serverModel,
       child: Container(
-        width: isQs ? double.infinity : (isIncomingOnly ? 280.0 : 200.0),
+        width: isQs ? 420.0 : (isIncomingOnly ? 280.0 : 200.0),
         color: Theme.of(context).colorScheme.background,
         child: Stack(
           children: [
             Column(
               children: [
-                SingleChildScrollView(
-                  controller: _leftPaneScrollController,
-                  child: Column(
-                    key: _childKey,
-                    children: children,
+                if (isQs)
+                  SingleChildScrollView(
+                    physics: const NeverScrollableScrollPhysics(),
+                    child: NotificationListener<SizeChangedLayoutNotification>(
+                      onNotification: (notification) {
+                        WidgetsBinding.instance.addPostFrameCallback((_) {
+                          if (mounted) _updateWindowSize();
+                        });
+                        return true;
+                      },
+                      child: SizeChangedLayoutNotifier(
+                        child: Column(
+                          key: _childKey,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            ...children,
+                            const SizedBox(height: 36), // Reserved space cho status bar overlay
+                          ],
+                        ),
+                      ),
+                    ),
+                  )
+                else
+                  Expanded(
+                    child: SingleChildScrollView(
+                      controller: _leftPaneScrollController,
+                      child: Column(
+                        key: _childKey,
+                        children: children,
+                      ),
+                    ),
                   ),
-                ),
-                Expanded(child: Container())
               ],
             ),
+            if (isQs)
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: 0,
+                child: Container(
+                  color: Theme.of(context).colorScheme.background,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [Divider(height: 1), statusWidget],
+                  ),
+                ),
+              ),
             if (isOutgoingOnly)
               Positioned(
                 bottom: 6,
@@ -446,19 +495,55 @@ class _DesktopHomePageState extends State<DesktopHomePage>
 
   Widget buildHelpCards(String updateUrl) {
     final isQs = bind.mainGetCommonSync(key: 'is-qs') == 'true';
-    if (isQs && _qsExpandedForUpdate && (updateUrl.isEmpty || isCardClosed)) {
-      _qsExpandedForUpdate = false;
-      windowManager.setSize(getQsHomeSize());
-    }
-    if (updateUrl.isNotEmpty && !isCardClosed) {
-      if (isQs && !_qsExpandedForUpdate) {
+    final showUpdateCard = updateUrl.isNotEmpty && !isCardClosed;
+    final showSystemErrorCard = systemError.isNotEmpty;
+    final showWindowsInstallCard =
+        isWindows && !bind.isDisableInstallation() && !bind.mainIsInstalled();
+    final showWindowsLowerVersionCard = isWindows &&
+        !bind.isDisableInstallation() &&
+        bind.mainIsInstalled() &&
+        bind.mainIsInstalledLowerVersion();
+    final shouldExpandQs = isQs &&
+        (showUpdateCard ||
+            showSystemErrorCard ||
+            showWindowsInstallCard ||
+            showWindowsLowerVersionCard);
+
+    if (shouldExpandQs) {
+      if (!_qsExpandedForUpdate) {
         _qsExpandedForUpdate = true;
-        windowManager.setSize(getQsHomeSizeWithUpdate());
       }
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          _updateWindowSize();
+        }
+      });
+      Future.delayed(const Duration(milliseconds: 180), () {
+        if (mounted) {
+          _updateWindowSize();
+        }
+      });
+    } else if (isQs && _qsExpandedForUpdate) {
+      _qsExpandedForUpdate = false;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          _updateWindowSize();
+        }
+      });
+      // Thêm delay để đảm bảo state update hoàn toàn
+      Future.delayed(const Duration(milliseconds: 300), () {
+        if (mounted) {
+          _updateWindowSize();
+        }
+      });
+    }
+
+    if (showUpdateCard) {
       final isToUpdate = (isWindows || isMacOS) && bind.mainIsInstalled();
-          String btnText = (isToUpdate || isQs || isDesktop) ? 'Update' : 'Download';
+      String btnText =
+          (isToUpdate || isQs || isDesktop) ? 'Update' : 'Download';
       GestureTapCallback onPressed = () async {
-            if (isToUpdate || isQs || isDesktop) {
+        if (isToUpdate || isQs || isDesktop) {
           handleUpdate(updateUrl);
         } else {
           final Uri url = Uri.parse(updateUrl);
@@ -488,6 +573,16 @@ class _DesktopHomePageState extends State<DesktopHomePage>
             () async {
           await rustDeskWinManager.closeAllSubWindows();
           bind.mainGotoInstall();
+          // Force resize sau khi install để window co lại
+          Future.delayed(const Duration(milliseconds: 300), () {
+            if (mounted) _updateWindowSize();
+          });
+          Future.delayed(const Duration(milliseconds: 1000), () {
+            if (mounted) _updateWindowSize();
+          });
+          Future.delayed(const Duration(milliseconds: 2000), () {
+            if (mounted) _updateWindowSize();
+          });
         });
       } else if (bind.mainIsInstalledLowerVersion()) {
         return buildInstallCard(
@@ -623,7 +718,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       }
       if (isQs) {
         _qsExpandedForUpdate = false;
-        windowManager.setSize(getQsHomeSize());
+        resetQsMainWindowSize();
       }
     }
 
@@ -642,19 +737,23 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                   Color.fromARGB(255, 244, 114, 124),
                 ],
               )),
-            constraints:
-              minHeight != null ? BoxConstraints(minHeight: minHeight) : null,
-              padding: EdgeInsets.all(20),
+              constraints: minHeight != null
+                  ? BoxConstraints(minHeight: minHeight)
+                  : null,
+              padding: EdgeInsets.fromLTRB(
+                  20,
+                  20,
+                  20,
+                  20 + (isQs ? 24 : 0)),
               child: Column(
-                mainAxisSize: centerContent
-                  ? MainAxisSize.min
-                  : MainAxisSize.max,
-                mainAxisAlignment: centerContent
-                  ? MainAxisAlignment.center
-                  : MainAxisAlignment.start,
-                crossAxisAlignment: centerContent
-                  ? CrossAxisAlignment.center
-                  : CrossAxisAlignment.start,
+                  mainAxisSize:
+                      centerContent ? MainAxisSize.min : MainAxisSize.max,
+                  mainAxisAlignment: centerContent
+                      ? MainAxisAlignment.center
+                      : MainAxisAlignment.start,
+                  crossAxisAlignment: centerContent
+                      ? CrossAxisAlignment.center
+                      : CrossAxisAlignment.start,
                   children: (title.isNotEmpty
                           ? <Widget>[
                               Center(
@@ -664,21 +763,22 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                                     color: Colors.white,
                                     fontWeight: FontWeight.bold,
                                     fontSize: 15),
-                      ).marginOnly(bottom: centerContent ? 8 : 6)),
+                              ).marginOnly(bottom: centerContent ? 8 : 6)),
                             ]
                           : <Widget>[]) +
                       <Widget>[
                         if (content.isNotEmpty)
                           Text(
                             translate(content),
-                            textAlign:
-                                centerContent ? TextAlign.center : TextAlign.start,
+                            textAlign: centerContent
+                                ? TextAlign.center
+                                : TextAlign.start,
                             style: TextStyle(
                                 height: 1.5,
                                 color: Colors.white,
                                 fontWeight: FontWeight.normal,
                                 fontSize: 13),
-                    ).marginOnly(bottom: centerContent ? 12 : 20)
+                          ).marginOnly(bottom: centerContent ? 12 : 20)
                       ] +
                       (btnText.isNotEmpty
                           ? <Widget>[
@@ -703,16 +803,17 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                           ? <Widget>[
                               Center(
                                   child: InkWell(
-                                      onTap: () async =>
-                                          await launchUrl(Uri.parse(link!)),
-                                      child: Text(
-                                        translate(help),
-                                        style: TextStyle(
-                                            decoration:
-                                                TextDecoration.underline,
-                                            color: Colors.white,
-                                            fontSize: 12),
-                                      )).marginOnly(top: centerContent ? 8 : 6)),
+                                          onTap: () async =>
+                                              await launchUrl(Uri.parse(link!)),
+                                          child: Text(
+                                            translate(help),
+                                            style: TextStyle(
+                                                decoration:
+                                                    TextDecoration.underline,
+                                                color: Colors.white,
+                                                fontSize: 12),
+                                          ))
+                                      .marginOnly(top: centerContent ? 8 : 6)),
                             ]
                           : <Widget>[]))),
         ),
@@ -902,13 +1003,35 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   _updateWindowSize() {
     RenderObject? renderObject = _childKey.currentContext?.findRenderObject();
     if (renderObject == null) {
+       debugPrint('[QS-Resize] renderObject is null');
       return;
     }
     if (renderObject is RenderBox) {
       final size = renderObject.size;
-      if (size != imcomingOnlyHomeSize) {
-        imcomingOnlyHomeSize = size;
-        windowManager.setSize(getIncomingOnlyHomeSize());
+      final isQs = bind.mainGetCommonSync(key: 'is-qs') == 'true';
+       debugPrint('[QS-Resize] renderObject size: $size, isQs: $isQs');
+      if (isQs) {
+        final hasInstallWarning = isWindows &&
+            !bind.isDisableInstallation() &&
+            (!bind.mainIsInstalled() || bind.mainIsInstalledLowerVersion());
+        final hasNotificationNow =
+            stateGlobal.updateUrl.value.isNotEmpty || systemError.isNotEmpty;
+        final shouldExpand = _qsExpandedForUpdate || _qsExpandedForStatusWarning || hasInstallWarning || hasNotificationNow;
+
+        final targetSize = shouldExpand ? getQsHomeSizeWithDialog() : getQsHomeSize();
+        
+        // Chỉ resize khi thay đổi đáng kể (tránh loop)
+        if (_lastQsWindowSize == null || 
+            (targetSize.width - _lastQsWindowSize!.width).abs() > 1.0 ||
+            (targetSize.height - _lastQsWindowSize!.height).abs() > 1.0) {
+          _lastQsWindowSize = targetSize;
+          windowManager.setSize(targetSize);
+        }
+      } else {
+        if (size != imcomingOnlyHomeSize) {
+          imcomingOnlyHomeSize = size;
+          windowManager.setSize(getIncomingOnlyHomeSize());
+        }
       }
     }
   }
@@ -980,7 +1103,9 @@ void setPasswordDialog({VoidCallback? notEmptyCallback}) async {
 
   gFFI.dialogManager.show((setState, close, context) {
     closeWithResize() {
-      if (previousSize != null) {
+      if (isQs) {
+        resetQsMainWindowSize();
+      } else if (previousSize != null) {
         windowManager.setSize(previousSize!);
       }
       close();
@@ -1045,9 +1170,7 @@ void setPasswordDialog({VoidCallback? notEmptyCallback}) async {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             SizedBox(
-              height: showStatusTipOnMobile
-                  ? 0.0
-                  : (isQs ? 4.0 : 6.0),
+              height: showStatusTipOnMobile ? 0.0 : (isQs ? 4.0 : 6.0),
             ),
             Row(
               children: [
@@ -1076,14 +1199,9 @@ void setPasswordDialog({VoidCallback? notEmptyCallback}) async {
                 Expanded(child: PasswordStrengthIndicator(password: rxPass)),
               ],
             ).marginOnly(
-                top: 2,
-                bottom: showStatusTipOnMobile
-                    ? 2
-                    : (isQs ? 4 : 8)),
+                top: 2, bottom: showStatusTipOnMobile ? 2 : (isQs ? 4 : 8)),
             SizedBox(
-              height: showStatusTipOnMobile
-                  ? 0.0
-                  : (isQs ? 4.0 : 8.0),
+              height: showStatusTipOnMobile ? 0.0 : (isQs ? 4.0 : 8.0),
             ),
             Row(
               children: [
@@ -1118,14 +1236,10 @@ void setPasswordDialog({VoidCallback? notEmptyCallback}) async {
                 ],
               ).marginOnly(top: 6, bottom: 2),
             SizedBox(
-              height: showStatusTipOnMobile
-                  ? 0.0
-                  : (isQs ? 4.0 : 8.0),
+              height: showStatusTipOnMobile ? 0.0 : (isQs ? 4.0 : 8.0),
             ),
             Obx(() => Wrap(
-                  runSpacing: showStatusTipOnMobile
-                      ? 2.0
-                      : (isQs ? 4.0 : 8.0),
+                  runSpacing: showStatusTipOnMobile ? 2.0 : (isQs ? 4.0 : 8.0),
                   spacing: isQs ? 2 : 4,
                   children: rules.map((e) {
                     var checked = e.validate(rxPass.value.trim());

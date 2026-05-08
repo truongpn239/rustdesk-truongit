@@ -65,7 +65,7 @@ class _DesktopTabPageState extends State<DesktopTabPage> {
     } else if (bind.mainGetCommonSync(key: 'is-qs') == 'true') {
       tabController.onSelected = (key) {
         if (key == kTabLabelHomePage) {
-          windowManager.setSize(getQsHomeSize());
+          resetQsMainWindowSize();
           setResizable(false);
         } else {
           windowManager.setSize(getIncomingOnlySettingsSize());
@@ -79,6 +79,11 @@ class _DesktopTabPageState extends State<DesktopTabPage> {
   void initState() {
     super.initState();
     // HardwareKeyboard.instance.addHandler(_handleKeyEvent);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        tabController.jumpTo(tabController.state.value.selected);
+      }
+    });
   }
 
   /*
@@ -109,7 +114,8 @@ class _DesktopTabPageState extends State<DesktopTabPage> {
               controller: tabController,
               showMaximize: !isQs,
               tail: Offstage(
-                offstage: bind.isIncomingOnly() || bind.isDisableSettings() || isQs,
+                offstage:
+                    bind.isIncomingOnly() || bind.isDisableSettings() || isQs,
                 child: ActionIcon(
                   message: 'Settings',
                   icon: IconFont.menu,

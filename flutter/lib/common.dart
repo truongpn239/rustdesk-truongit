@@ -1809,6 +1809,15 @@ Future<void> saveWindowPosition(WindowType type,
     }
   }
 
+  if (type == WindowType.Main &&
+      bind.mainGetCommonSync(key: 'is-qs') == 'true') {
+    // QS uses temporary taller sizes for update cards/dialogs. Never persist those
+    // transient heights, otherwise every restart can restore a taller window.
+    sz = getQsHomeSize();
+    isMaximized = false;
+    isFullscreen = false;
+  }
+
   final pos = LastWindowPosition(sz?.width, sz?.height, position?.dx,
       position?.dy, isMaximized, isFullscreen);
 
@@ -2046,7 +2055,10 @@ Future<bool> restoreWindowPosition(WindowType type,
     }
   }
 
-  final size = await _adjustRestoreMainWindowSize(lpos.width, lpos.height);
+  final size =
+      type == WindowType.Main && bind.mainGetCommonSync(key: 'is-qs') == 'true'
+          ? getQsHomeSize()
+          : await _adjustRestoreMainWindowSize(lpos.width, lpos.height);
   final offsetLeftTop = await _adjustRestoreMainWindowOffset(
     lpos.offsetWidth,
     lpos.offsetHeight,
@@ -3749,21 +3761,48 @@ Size getIncomingOnlySettingsSize() {
 Size getQsHomeSize() {
   final magicWidth = isWindows ? 11.0 : 2.0;
   final magicHeight = 10.0;
-  return Size(420, 440) + Offset(magicWidth, kDesktopRemoteTabBarHeight + magicHeight);
+  final size = Size(420, 300) +
+      Offset(magicWidth, kDesktopRemoteTabBarHeight + magicHeight);
+  debugPrint('[QS-Size] getQsHomeSize: $size');
+  return size;
 }
 
 Size getQsHomeSizeWithUpdate() {
   final magicWidth = isWindows ? 11.0 : 2.0;
   final magicHeight = 10.0;
-  return Size(420, 440) +
+  final size = Size(420, 480) +
       Offset(magicWidth, kDesktopRemoteTabBarHeight + magicHeight);
+  debugPrint('[QS-Size] getQsHomeSizeWithUpdate: $size');
+  return size;
 }
 
 Size getQsHomeSizeWithDialog() {
   final magicWidth = isWindows ? 11.0 : 2.0;
   final magicHeight = 10.0;
-  return Size(420, 500) +
+  final size = Size(420, 470) +
       Offset(magicWidth, kDesktopRemoteTabBarHeight + magicHeight);
+  debugPrint('[QS-Size] getQsHomeSizeWithDialog: $size');
+  return size;
+}
+
+Future<void> resetQsMainWindowSize({bool center = false}) async {
+  if (!isDesktop || bind.mainGetCommonSync(key: 'is-qs') != 'true') {
+    return;
+  }
+  // Kiểm tra có warning/notification đang hiện không
+  final hasInstallWarning = isWindows &&
+      !bind.isDisableInstallation() &&
+      (!bind.mainIsInstalled() || bind.mainIsInstalledLowerVersion());
+  final hasNotificationNow = stateGlobal.updateUrl.value.isNotEmpty;
+  final shouldExpand = hasInstallWarning || hasNotificationNow;
+
+  final targetSize = shouldExpand ? getQsHomeSizeWithDialog() : getQsHomeSize();
+  await windowManager.setSize(targetSize);
+  if (center) {
+    await windowManager.center();
+  }
+  await windowManager.setMaximizable(false);
+  setResizable(false);
 }
 
 bool isInHomePage() {
@@ -3994,7 +4033,9 @@ void checkUpdate() {
             final isQs = bind.mainGetCommonSync(key: 'is-qs') == 'true';
             if (data[platformKey]['version'] != null) {
               final newVer = data[platformKey]['version'].toString();
-              final downloadUrl = data[platformKey][isQs ? 'quicksupport_url' : 'download_url'].toString();
+              final downloadUrl = data[platformKey]
+                      [isQs ? 'quicksupport_url' : 'download_url']
+                  .toString();
               final currentVer = await bind.mainGetVersion();
               // Compare version strings: just a simple string compare is usually fine if format is consistent (e.g. 1.4.5 vs 1.4.4)
               if (newVer.compareTo(currentVer) > 0) {

@@ -14,7 +14,22 @@ from pathlib import Path
 windows = platform.platform().startswith('Windows')
 osx = platform.platform().startswith(
     'Darwin') or platform.platform().startswith("macOS")
-hbb_name = 'rustdesk' + ('.exe' if windows else '')
+def detect_binary_name():
+    # default
+    name = 'rustdesk'
+    try:
+        with open('Cargo.toml', encoding='utf-8') as fh:
+            for line in fh:
+                if 'OriginalFilename' in line and '=' in line:
+                    val = line.split('=', 1)[1].strip().strip('"').strip("'")
+                    if val:
+                        # use value as-is (may include .exe)
+                        return val
+    except Exception:
+        pass
+    return name + ('.exe' if windows else '')
+
+hbb_name = detect_binary_name()
 exe_path = 'target/release/' + hbb_name
 if windows:
     flutter_build_dir = 'build/windows/x64/runner/Release/'
@@ -448,6 +463,28 @@ def build_flutter_arch_manjaro(version, features):
     system2('HBB=`pwd`/.. FLUTTER=1 makepkg -f')
 
 
+def sync_flutter_windows_debug_artifacts(features):
+    if not windows:
+        return
+    # Build debug Rust dylibs for `flutter run -d windows`.
+    system2(f'cargo build --features {features} --lib')
+    debug_dll = 'target/debug/librustdesk.dll'
+    if not os.path.exists(debug_dll):
+        print('cargo debug build failed, missing target/debug/librustdesk.dll')
+        exit(-1)
+
+    debug_dylib_virtual_display = 'target/debug/deps/dylib_virtual_display.dll'
+    if not os.path.exists(debug_dylib_virtual_display):
+        # Fallback to release if debug artifact is not emitted by this crate layout.
+        debug_dylib_virtual_display = 'target/release/deps/dylib_virtual_display.dll'
+
+    debug_dir = 'flutter/build/windows/x64/runner/Debug'
+    os.makedirs(debug_dir, exist_ok=True)
+    shutil.copy2(debug_dll, debug_dir)
+    if os.path.exists(debug_dylib_virtual_display):
+        shutil.copy2(debug_dylib_virtual_display, debug_dir)
+
+
 def build_flutter_windows(version, features, skip_portable_pack):
     if not skip_cargo:
         system2(f'cargo build --features {features} --lib --release')
@@ -459,16 +496,14 @@ def build_flutter_windows(version, features, skip_portable_pack):
     os.chdir('..')
     shutil.copy2('target/release/deps/dylib_virtual_display.dll',
                  flutter_build_dir_2)
-    debug_dir = 'flutter/build/windows/x64/runner/Debug'
-    os.makedirs(debug_dir, exist_ok=True)
-    shutil.copy2('target/release/librustdesk.dll', debug_dir)
-    shutil.copy2('target/release/deps/dylib_virtual_display.dll', debug_dir)
+    # Keep debug runner in sync so `flutter run -d windows` uses fresh Rust symbols.
+    sync_flutter_windows_debug_artifacts(features)
     if skip_portable_pack:
         return
     os.chdir('libs/portable')
     system2('pip3 install -r requirements.txt')
     system2(
-        f'python3 ./generate.py -f ../../{flutter_build_dir_2} -o . -e ../../{flutter_build_dir_2}/rustdesk.exe')
+        f'python3 ./generate.py -f ../../{flutter_build_dir_2} -o . -e ../../{flutter_build_dir_2}/{hbb_name}')
     os.chdir('../..')
     full_exe = f'./helpdesk-{version}.exe'
     qs_exe = f'./helpdesk-{version}-quicksupport.exe'

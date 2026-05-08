@@ -179,9 +179,7 @@ void runMainApp(bool startService) async {
     // Do not use `windowManager.setResizable()` here.
     final isQs = bind.mainGetCommonSync(key: 'is-qs') == 'true';
     if (isQs) {
-      await windowManager.setSize(getQsHomeSize());
-      await windowManager.setMaximizable(false);
-      setResizable(false);
+      await resetQsMainWindowSize(center: true);
     } else {
       setResizable(!bind.isIncomingOnly());
     }
